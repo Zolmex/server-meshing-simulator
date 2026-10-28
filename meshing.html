@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Server Meshing estático</title>
+<style>
+:root{--bg:#f4f5f8;--panel:#fff;--text:#1b1f27;--muted:#69707d;--line:#d3d8e0;--ok:#2e9e6a;--warn:#d9902b;--bad:#d64545;--map:#eceff4;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--panel:#1b1f27;--text:#e7e9ee;--muted:#9aa1ae;--line:#313846;--map:#0f1218;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12151b;--panel:#1b1f27;--text:#e7e9ee;--muted:#9aa1ae;--line:#313846;--map:#0f1218;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:14px}
+h1{font-size:18px;margin:0 0 10px}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;max-width:1200px;margin:auto}
+@media(max-width:860px){.app{grid-template-columns:1fr}}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+canvas{width:100%;height:auto;aspect-ratio:800/480;display:block;background:var(--map);border-radius:8px;cursor:crosshair}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+label b{color:var(--text);font-weight:600}
+input[type=range]{width:100%}
+select,button{font:inherit;padding:7px 10px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer}
+button.primary{background:#3b6cf0;border-color:#3b6cf0;color:#fff;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+.card{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:pointer}
+.card.down{opacity:.7;border-color:var(--bad)}
+.card .top{display:flex;justify-content:space-between;align-items:center;font-weight:600}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:6px 0 3px}
+.bar i{display:block;height:100%;width:0;transition:width .15s,background .15s}
+.small{font-size:12px;color:var(--muted)}
+.stats{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px}
+</style>
+</head>
+<body>
+<h1>Server Meshing estático — simulación</h1>
+<div class="app">
+  <div class="box">
+    <canvas id="c"></canvas>
+    <div class="controls">
+      <div class="row">
+        <button id="go" class="primary">▶ Iniciar</button>
+        <button id="clr">Quitar atractor</button>
+      </div>
+      <label>Zonas (servidores)
+        <select id="zones"><option value="4">4 zonas (2×2)</option><option value="6">6 zonas (3×2)</option><option value="8">8 zonas (4×2)</option></select>
+      </label>
+      <label>Jugadores: <b id="vn">60</b><input id="np" type="range" min="10" max="200" value="60"></label>
+      <label>Latencia de red: <b id="vl">300 ms</b><input id="lat" type="range" min="0" max="2500" step="50" value="300"></label>
+      <label>Capacidad por servidor: <b id="vc">25</b><input id="cap" type="range" min="5" max="60" value="25"></label>
+    </div>
+    <p class="small" style="margin:10px 0 0">Haz clic en el mapa para crear un atractor (evento masivo) y sobrecargar una zona. Haz clic en una tarjeta de servidor para tumbarlo o recuperarlo. Anillo punteado = transferencia en curso.</p>
+  </div>
+  <div class="box">
+    <div class="stats"><span>Traspasos: <b id="tot">0</b></span><span>En tránsito: <b id="pen">0</b></span></div>
+    <div id="cards"></div>
+  </div>
+</div>
+<script>
+const W=800,H=480,cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const dpr=Math.min(window.devicePixelRatio||1,2);cv.width=W*dpr;cv.height=H*dpr;
+const LAYOUT={4:[2,2],6:[3,2],8:[4,2]};
+const $=id=>document.getElementById(id);
+let cols=2,rows=2,N=4,T=0,running=false,latency=300,capacity=25;
+let players=[],pings=[],history=[],down=new Set(),attractor=null,totalHandoffs=0,cardEls=[];
+
+const zoneOf=(x,y)=>Math.min(cols-1,Math.floor(x/(W/cols)))+cols*Math.min(rows-1,Math.floor(y/(H/rows)));
+const center=i=>({x:(i%cols+.5)*W/cols,y:(Math.floor(i/cols)+.5)*H/rows});
+const color=i=>`hsl(${(i*360/N+12)%360},72%,52%)`;
+
+// Si la zona está caída, el mesh reasigna al servidor vivo más cercano
+function resolve(z){
+  if(!down.has(z))return z;
+  let best=-1,bd=1e9,c=center(z);
+  for(let i=0;i<N;i++){if(down.has(i))continue;const o=center(i),d=(o.x-c.x)**2+(o.y-c.y)**2;if(d<bd){bd=d;best=i}}
+  return best<0?z:best;
+}
+function spawn(){
+  const x=Math.random()*W,y=Math.random()*H;
+  return{x,y,a:Math.random()*6.283,s:35+Math.random()*45,owner:resolve(zoneOf(x,y)),pend:null,flash:-1e9};
+}
+function setPlayers(n){while(players.length<n)players.push(spawn());players.length=n;}
+function setZones(n){
+  [cols,rows]=LAYOUT[n];N=n;down.clear();
+  players.forEach(p=>{p.owner=resolve(zoneOf(p.x,p.y));p.pend=null});
+  history=[];buildCards();
+}
+function buildCards(){
+  const box=$('cards');box.innerHTML='';cardEls=[];
+  for(let i=0;i<N;i++){
+    const d=document.createElement('div');d.className='card';
+    d.innerHTML=`<div class="top"><span><span class="dot" style="background:${color(i)}"></span>Servidor ${i+1}</span><span class="pct"></span></div>
+    <div class="bar"><i></i></div><div class="small txt"></div><div class="small io"></div>`;
+    d.onclick=()=>{down.has(i)?down.delete(i):down.add(i)};
+    box.appendChild(d);
+    cardEls.push({d,pct:d.querySelector('.pct'),bar:d.querySelector('.bar i'),txt:d.querySelector('.txt'),io:d.querySelector('.io')});
+  }
+}
+
+function update(dt){
+  T+=dt*1000;
+  for(const p of players){
+    // movimiento aleatorio suave (+ atracción opcional)
+    p.a+=(Math.random()-.5)*4*dt;
+    if(attractor){
+      const want=Math.atan2(attractor.y-p.y,attractor.x-p.x);
+      let df=Math.atan2(Math.sin(want-p.a),Math.cos(want-p.a));
+      p.a+=df*1.2*dt;
+    }
+    p.x+=Math.cos(p.a)*p.s*dt;p.y+=Math.sin(p.a)*p.s*dt;
+    if(p.x<2||p.x>W-2){p.a=Math.PI-p.a;p.x=Math.max(2,Math.min(W-2,p.x))}
+    if(p.y<2||p.y>H-2){p.a=-p.a;p.y=Math.max(2,Math.min(H-2,p.y))}
+    // lógica de handoff
+    const target=resolve(zoneOf(p.x,p.y));
+    if(target===p.owner)p.pend=null;
+    else if(!p.pend||p.pend.to!==target)p.pend={to:target,at:T+latency};
+    if(p.pend&&T>=p.pend.at){
+      p.owner=p.pend.to;p.pend=null;p.flash=T;totalHandoffs++;
+      pings.push({x:p.x,y:p.y,t:T,c:color(p.owner)});
+    }
+  }
+  pings=pings.filter(g=>T-g.t<700);
+  // snapshot de métricas: se publica con retraso = latencia
+  const counts=new Array(N).fill(0);
+  players.forEach(p=>counts[p.owner]++);
+  history.push({t:T,counts});
+  while(history.length>1&&history[1].t<=T-latency)history.shift();
+}
+
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function draw(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const line=css('--line'),muted=css('--muted');
+  const zw=W/cols,zh=H/rows;
+  ctx.font='600 13px system-ui,sans-serif';ctx.textBaseline='top';
+  for(let i=0;i<N;i++){
+    const x=(i%cols)*zw,y=Math.floor(i/cols)*zh;
+    ctx.globalAlpha=down.has(i)?.22:.09;ctx.fillStyle=down.has(i)?'#d64545':color(i);ctx.fillRect(x,y,zw,zh);
+    ctx.globalAlpha=1;ctx.strokeStyle=line;ctx.lineWidth=1.5;ctx.strokeRect(x+.5,y+.5,zw-1,zh-1);
+    ctx.fillStyle=down.has(i)?'#d64545':color(i);ctx.fillText(`S${i+1}${down.has(i)?' · CAÍDO':''}`,x+8,y+7);
+  }
+  if(attractor){
+    ctx.strokeStyle=muted;ctx.lineWidth=1.5;ctx.beginPath();
+    ctx.arc(attractor.x,attractor.y,9,0,6.283);ctx.moveTo(attractor.x-14,attractor.y);ctx.lineTo(attractor.x+14,attractor.y);
+    ctx.moveTo(attractor.x,attractor.y-14);ctx.lineTo(attractor.x,attractor.y+14);ctx.stroke();
+  }
+  for(const p of players){
+    const fl=T-p.flash;
+    if(p.pend){ctx.strokeStyle=color(p.pend.to);ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.arc(p.x,p.y,8,0,6.283);ctx.stroke();ctx.setLineDash([])}
+    ctx.fillStyle=fl<350?'#fff':color(p.owner);
+    ctx.beginPath();ctx.arc(p.x,p.y,fl<350?5:3.5,0,6.283);ctx.fill();
+    if(fl<350){ctx.strokeStyle=color(p.owner);ctx.lineWidth=2;ctx.stroke()}
+  }
+  for(const g of pings){
+    const k=(T-g.t)/700;ctx.globalAlpha=1-k;ctx.strokeStyle=g.c;ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(g.x,g.y,5+k*24,0,6.283);ctx.stroke();ctx.globalAlpha=1;
+  }
+}
+
+function renderPanel(){
+  const snap=history.length?history[0].counts:new Array(N).fill(0);
+  const inc=new Array(N).fill(0),out=new Array(N).fill(0);
+  let pending=0;
+  players.forEach(p=>{if(p.pend){pending++;out[p.owner]++;inc[p.pend.to]++}});
+  for(let i=0;i<N;i++){
+    const n=snap[i]||0,load=Math.round(n/capacity*100),e=cardEls[i];
+    const dead=down.has(i);
+    e.d.classList.toggle('down',dead);
+    e.pct.textContent=dead?'CAÍDO':load+'% carga';
+    e.bar.style.width=Math.min(100,load)+'%';
+    e.bar.style.background=load>=90?css('--bad'):load>=60?css('--warn'):css('--ok');
+    e.txt.textContent=`${n} jugadores (${load}% de ${capacity})`;
+    e.io.textContent=`entrando: ${inc[i]} · saliendo: ${out[i]}`;
+  }
+  $('tot').textContent=totalHandoffs;$('pen').textContent=pending;
+}
+
+let last=performance.now(),acc=0;
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(running)update(dt);
+  draw();acc+=dt;if(acc>.1){acc=0;renderPanel()}
+  requestAnimationFrame(loop);
+}
+
+$('go').onclick=()=>{running=!running;$('go').textContent=running?'⏸ Pausar':'▶ Iniciar'};
+$('zones').onchange=e=>setZones(+e.target.value);
+$('np').oninput=e=>{$('vn').textContent=e.target.value;setPlayers(+e.target.value)};
+$('lat').oninput=e=>{latency=+e.target.value;$('vl').textContent=latency+' ms'};
+$('cap').oninput=e=>{capacity=+e.target.value;$('vc').textContent=capacity};
+$('clr').onclick=()=>attractor=null;
+cv.onclick=e=>{const r=cv.getBoundingClientRect();attractor={x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H}};
+
+setPlayers(60);setZones(4);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
