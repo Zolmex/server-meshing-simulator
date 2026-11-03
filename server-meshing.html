@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Simulador Server Meshing</title>
+  <style>
+    :root {
+      --bg: #f4f5f8;
+      --panel: #fff;
+      --text: #1b1f27;
+      --muted: #69707d;
+      --line: #d3d8e0;
+      --ok: #2e9e6a;
+      --warn: #d9902b;
+      --bad: #d64545;
+      --map: #eceff4;
+      color-scheme: light;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px)
+    }
+
+    @media (prefers-color-scheme:dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #12151b;
+        --panel: #1b1f27;
+        --text: #e7e9ee;
+        --muted: #9aa1ae;
+        --line: #313846;
+        --map: #0f1218;
+        color-scheme: dark
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #12151b;
+      --panel: #1b1f27;
+      --text: #e7e9ee;
+      --muted: #9aa1ae;
+      --line: #313846;
+      --map: #0f1218;
+      color-scheme: dark
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 14px
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0 0 10px
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 14px;
+      max-width: 1200px;
+      margin: auto
+    }
+
+    @media(max-width:860px) {
+      .app {
+        grid-template-columns: 1fr
+      }
+    }
+
+    .box {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      min-width: 0
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      max-width: 100%;
+      aspect-ratio: 800/480;
+      display: block;
+      background: var(--map);
+      border-radius: 8px;
+      cursor: crosshair
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-top: 12px
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    label b {
+      color: var(--text);
+      font-weight: 600
+    }
+
+    input[type=range] {
+      width: 100%
+    }
+
+    select,
+    button {
+      font: inherit;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer
+    }
+
+    button.primary {
+      background: #3b6cf0;
+      border-color: #3b6cf0;
+      color: #fff;
+      font-weight: 600
+    }
+
+    .seg {
+      display: flex;
+      grid-column: 1/-1
+    }
+
+    .seg button {
+      flex: 1;
+      border-radius: 0;
+      font-size: 13px;
+      padding: 7px 6px
+    }
+
+    .seg button:first-child {
+      border-radius: 7px 0 0 7px
+    }
+
+    .seg button:last-child {
+      border-radius: 0 7px 7px 0;
+      border-left: 0
+    }
+
+    .seg button.on {
+      background: #3b6cf0;
+      border-color: #3b6cf0;
+      color: #fff;
+      font-weight: 600
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: end
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      cursor: pointer
+    }
+
+    .card.down {
+      opacity: .7;
+      border-color: var(--bad)
+    }
+
+    .card.starting {
+      border-color: var(--warn)
+    }
+
+    .card.draining {
+      border-style: dashed;
+      opacity: .85
+    }
+
+    .card .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      min-width: 0
+    }
+
+    .card .top>span:first-child {
+      min-width: 0
+    }
+
+    .card .st {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-left: 6px
+    }
+
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px
+    }
+
+    .bar {
+      height: 8px;
+      border-radius: 4px;
+      background: var(--line);
+      overflow: hidden;
+      margin: 6px 0 3px
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 0;
+      transition: width .15s, background .15s
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    .stats {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 3px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 8px
+    }
+
+    .el-only {
+      display: none !important
+    }
+
+    body.elastic .el-only {
+      display: flex !important
+    }
+
+    body.elastic .el-only.block {
+      display: block !important
+    }
+
+    .log {
+      max-height: 138px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      margin-bottom: 8px
+    }
+
+    .log .line {
+      font-size: 11px;
+      color: var(--muted);
+      padding: 2px 0;
+      border-bottom: 1px dashed var(--line);
+      overflow-wrap: anywhere
+    }
+
+    .log .line:last-child {
+      color: var(--text);
+      border-bottom: 0
+    }
+
+    .badge {
+      color: var(--bad);
+      font-weight: 600;
+      font-size: 11px;
+      margin-top: 2px
+    }
+
+    @media(max-width:520px) {
+      body {
+        padding: 10px
+      }
+
+      h1 {
+        font-size: 16px
+      }
+
+      .box {
+        padding: 10px
+      }
+
+      .seg button {
+        font-size: 11px;
+        padding: 8px 4px
+      }
+
+      .controls {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Simulador Server Meshing</h1>
+  <div class="app">
+    <div class="box">
+      <canvas id="c"></canvas>
+      <div class="controls">
+        <div class="seg">
+          <button id="mS" class="on">Meshing estático</button>
+          <button id="mD">Meshing dinámico</button>
+          <button id="mE">Escalado elástico</button>
+        </div>
+        <div class="row">
+          <button id="go" class="primary">▶ Iniciar</button>
+          <button id="clr">Quitar atractor</button>
+        </div>
+        <label><span id="zlab">Zonas (servidores)</span>
+          <select id="zones">
+            <option value="4">4 zonas (2×2)</option>
+            <option value="6">6 zonas (3×2)</option>
+            <option value="8">8 zonas (4×2)</option>
+          </select>
+        </label>
+        <label>Jugadores: <b id="vn">60</b><input id="np" type="range" min="10" max="200" value="60"></label>
+        <label>Latencia de red: <b id="vl">300 ms</b><input id="lat" type="range" min="0" max="2500" step="50"
+            value="300"></label>
+        <label>Capacidad por servidor: <b id="vc">25</b><input id="cap" type="range" min="5" max="60"
+            value="25"></label>
+        <label class="el-only">Umbral de división: <b id="vs">85 %</b><input id="split" type="range" min="60" max="100"
+            step="1" value="85"></label>
+        <label class="el-only">Máx. servidores: <b id="vmx">12</b><input id="maxsrv" type="range" min="4" max="16"
+            step="1" value="12"></label>
+      </div>
+      <p class="small" style="margin:10px 0 0">Haz clic en el mapa para crear un atractor (evento masivo) y sobrecargar
+        una zona. Haz clic en una tarjeta de servidor para tumbarlo o recuperarlo. Anillo punteado = transferencia en
+        curso. En modo dinámico los límites se desplazan solos; en modo elástico los servidores se crean y retiran
+        según la demanda. Cambiar de modo o de servidores iniciales reinicia la simulación.</p>
+    </div>
+    <div class="box">
+      <div class="stats el-only"><span>Servidores activos: <b id="act">4</b> / <b id="maxh">12</b></span><span>Coste
+          acumulado: <b id="cost">0.0</b> servidor·s</span></div>
+      <div class="stats"><span>Traspasos: <b id="tot">0</b></span><span>En tránsito: <b
+            id="pen">0</b></span><span>Desbalance: <b id="dif">0 pts</b></span></div>
+      <div id="logWrap" class="log el-only block">
+        <div id="logList"></div>
+      </div>
+      <div id="cards"></div>
+    </div>
+  </div>
+  <script>
+    // =====================================================================
+    // Configuración agrupada del simulador (modo elástico)
+    // =====================================================================
+    const CFG = {
+      splitThreshold: 85,   // % de carga sostenida que dispara una división
+      mergeThreshold: 60,   // % de carga combinada que permite una fusión
+      mergeGap: 15,         // separación mínima entre umbral de fusión y división
+      sustainMs: 1000,      // tiempo de simulación que debe mantenerse la condición
+      cooldownMs: 3000,     // bloqueo por zona tras dividir o fusionar
+      bootBaseMs: 1200,     // arranque de un servidor nuevo (se suma la latencia)
+      minSide: 90,          // lado mínimo de cada mitad al dividir (px)
+      evalMs: 250,          // cadencia del autoscaler en tiempo de simulación
+      minServers: 2,        // mínimo de servidores activos
+      maxServers: 12        // máximo configurable (slider 4–16)
+    };
+
+    const W = 800, H = 480, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); cv.width = W * dpr; cv.height = H * dpr;
+    const LAYOUT = { 4: [2, 2], 6: [3, 2], 8: [4, 2] };
+    const $ = id => document.getElementById(id);
+
+    // PRNG con semilla para las pruebas deterministas (?seed=NUMERO).
+    // Sin el parámetro se usa Math.random como siempre.
+    const URLPARAMS = new URLSearchParams(location.search);
+    const SEED = URLPARAMS.has('seed') ? (+URLPARAMS.get('seed') >>> 0) : null;
+    let rnd = Math.random;
+    function mulberry32(a) {
+      return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function initRng() { rnd = SEED === null ? Math.random : mulberry32(SEED); }
+
+    let cols = 2, rows = 2, N = 4, T = 0, running = false, latency = 300, capacity = 25;
+    let mode = 'static', colB = [], rowB = [], tgt = null, lastRebal = 0;
+    let players = [], pings = [], history = [], down = new Set(), attractor = null, totalHandoffs = 0;
+    // Servidores presentes: activos, arrancando y drenando. Los drenando
+    // conservan la ficha pero su rectángulo de geometría pasa a tener área 0.
+    let zones = [], zoneById = new Map(), nextId = 1, cost = 0, log = [];
+    let lastEval = 0, splitSince = new Map(), mergeSince = new Map(), cooldown = new Map(), pendingSplits = [];
+    let cardMap = new Map(), cardSig = '', logSig = null;
+
+    // Límites de zonas para los modos estático y dinámico: columnas (colB) y,
+    // dentro de cada columna, filas (rowB[c]).
+    function initBounds() {
+      colB = []; for (let c = 0; c <= cols; c++) colB.push(W * c / cols);
+      rowB = []; for (let c = 0; c < cols; c++) { const r = []; for (let k = 0; k <= rows; k++) r.push(H * k / rows); rowB.push(r) }
+    }
+    function idx(b, v) { let k = 0; while (k < b.length - 2 && v >= b[k + 1]) k++; return k }
+
+    function rebuildIndex() {
+      zoneById = new Map();
+      for (const z of zones) zoneById.set(z.id, z);
+    }
+
+    // Los modos estático y dinámico siguen usando colB/rowB como fuente de
+    // verdad geométrica; sus zonas son una vista indexada por id. Así se
+    // conserva exactamente el comportamiento anterior.
+    function syncBoundsZones() {
+      if (mode === 'elastic') return;
+      for (const z of zones) {
+        const i = z.id - 1, c = i % cols, r = Math.floor(i / cols);
+        z.x = colB[c]; z.y = rowB[c][r];
+        z.w = colB[c + 1] - colB[c]; z.h = rowB[c][r + 1] - rowB[c][r];
+      }
+    }
+
+    // Devuelve el id de la zona que contiene el punto.
+    function zoneOf(x, y) {
+      if (mode !== 'elastic') {
+        const c = idx(colB, x);
+        return c + cols * idx(rowB[c], y) + 1;
+      }
+      for (const z of zones) {
+        if (z.w > 0 && z.h > 0 && x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h) return z.id;
+      }
+      // Borde derecho/inferior o hueco por redondeo: elige la zona más cercana.
+      let best = zones.length ? zones[0].id : 1, bd = Infinity;
+      for (const z of zones) {
+        if (z.w <= 0 || z.h <= 0) continue;
+        const dx = Math.max(z.x - x, 0, x - (z.x + z.w));
+        const dy = Math.max(z.y - y, 0, y - (z.y + z.h));
+        const d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = z.id; }
+      }
+      return best;
+    }
+
+    const rect = id => {
+      const z = zoneById.get(id);
+      return z ? { x: z.x, y: z.y, w: z.w, h: z.h } : { x: 0, y: 0, w: 0, h: 0 };
+    };
+    const center = id => {
+      const z = zoneById.get(id);
+      if (!z) return { x: W / 2, y: H / 2 };
+      if (z.w > 0 && z.h > 0) return { x: z.x + z.w / 2, y: z.y + z.h / 2 };
+      if (z.drainRect) return { x: z.drainRect.x + z.drainRect.w / 2, y: z.drainRect.y + z.drainRect.h / 2 };
+      return { x: W / 2, y: H / 2 };
+    };
+
+    // --- Meshing dinámico: los límites siguen los cuantiles de la población ---
+    function quantBounds(vals, k, size, minF) {
+      const s = vals.slice().sort((a, b) => a - b), min = size * minF, b = [0];
+      for (let i = 1; i < k; i++) b.push(s.length ? s[Math.min(s.length - 1, Math.floor(s.length * i / k))] : size * i / k);
+      b.push(size);
+      for (let i = 1; i < k; i++) b[i] = Math.max(b[i], b[i - 1] + min);
+      for (let i = k - 1; i >= 1; i--) b[i] = Math.min(b[i], b[i + 1] - min);
+      return b;
+    }
+    function rebalance() {
+      const tx = quantBounds(players.map(p => p.x), cols, W, .1), ty = [];
+      for (let c = 0; c < cols; c++) ty.push(quantBounds(players.filter(p => idx(tx, p.x) === c).map(p => p.y), rows, H, .12));
+      tgt = { x: tx, y: ty };
+    }
+    function adaptBounds(dt) {
+      if (T - lastRebal > 400) { lastRebal = T; rebalance() }
+      if (!tgt) return;
+      const k = Math.min(1, dt * 1.5);
+      for (let c = 0; c <= cols; c++) colB[c] += (tgt.x[c] - colB[c]) * k;
+      for (let c = 0; c < cols; c++) for (let r = 0; r <= rows; r++) rowB[c][r] += (tgt.y[c][r] - rowB[c][r]) * k;
+    }
+
+    // El color depende solo del id: el servidor conserva su color toda su vida
+    // y no cambia cuando otros servidores nacen o mueren.
+    const color = id => `hsl(${(id * 137.5) % 360},72%,52%)`;
+
+    // Si el servidor está caído, el mesh reasigna al servidor vivo más cercano.
+    // Un servidor arrancando todavía no atiende: su zona la cubre el padre.
+    function nearestLive(fromId, excludeId) {
+      const c = center(fromId);
+      const pick = filter => {
+        let best = -1, bd = Infinity;
+        for (const z of zones) {
+          if (z.w <= 0 || z.h <= 0 || down.has(z.id) || z.id === excludeId) continue;
+          if (!filter(z)) continue;
+          const o = center(z.id), d = (o.x - c.x) ** 2 + (o.y - c.y) ** 2;
+          if (d < bd) { bd = d; best = z.id; }
+        }
+        return best;
+      };
+      let best = pick(z => z.state === 'activo');
+      if (best < 0) best = pick(z => z.state !== 'drenando');
+      return best;
+    }
+    function resolve(z) {
+      const zone = zoneById.get(z);
+      if (zone && zone.state === 'arrancando' && !down.has(z)) {
+        const parent = zoneById.get(zone.parent);
+        if (parent && !down.has(parent.id)) return parent.id;
+        const n = nearestLive(z, z);
+        return n < 0 ? z : n;
+      }
+      if (!down.has(z)) return z;
+      const n = nearestLive(z, -1);
+      return n < 0 ? z : n;
+    }
+
+    function spawn() {
+      const x = rnd() * W, y = rnd() * H;
+      return { x, y, a: rnd() * 6.283, s: 35 + rnd() * 45, owner: resolve(zoneOf(x, y)), pend: null, flash: -1e9 };
+    }
+    function setPlayers(n) { while (players.length < n) players.push(spawn()); players.length = n; }
+
+    function snapshotCounts() {
+      const counts = {};
+      for (const z of zones) counts[z.id] = 0;
+      for (const p of players) counts[p.owner] = (counts[p.owner] || 0) + 1;
+      return counts;
+    }
+    function countInRect(x, y, w, h) {
+      let n = 0;
+      for (const p of players) if (p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h) n++;
+      return n;
+    }
+    function addLog(text) {
+      log.push(`${(T / 1000).toFixed(1)} s · ${text}`);
+      while (log.length > 8) log.shift();
+    }
+
+    // Reinicia la simulación completa (cambio de modo, zonas o servidores iniciales).
+    function reset() {
+      initRng();
+      [cols, rows] = LAYOUT[N];
+      down.clear(); attractor = null; T = 0; totalHandoffs = 0; pings = []; tgt = null; lastRebal = -1e9;
+      running = false; $('go').textContent = '▶ Iniciar';
+      initBounds();
+      zones = []; zoneById = new Map(); nextId = 1; cost = 0; log = []; logSig = null;
+      lastEval = 0; splitSince = new Map(); mergeSince = new Map(); cooldown = new Map(); pendingSplits = [];
+      // El máximo nunca puede quedar por debajo de los servidores iniciales.
+      if (mode === 'elastic' && CFG.maxServers < N) {
+        CFG.maxServers = N;
+        $('maxsrv').value = String(N); $('vmx').textContent = N;
+      }
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          zones.push({
+            id: nextId++, x: colB[c], y: rowB[c][r],
+            w: colB[c + 1] - colB[c], h: rowB[c][r + 1] - rowB[c][r], state: 'activo'
+          });
+        }
+      }
+      rebuildIndex();
+      players = []; setPlayers(+$('np').value);
+      history = [{ t: 0, counts: snapshotCounts() }];
+      buildCards(true);
+      renderPanel();
+    }
+    function setZones(n) {
+      n = +n;
+      if (!LAYOUT[n]) return;
+      N = n; $('zones').value = String(n); reset();
+    }
+
+    function updateModeUI() {
+      $('mS').classList.toggle('on', mode === 'static');
+      $('mD').classList.toggle('on', mode === 'dynamic');
+      $('mE').classList.toggle('on', mode === 'elastic');
+      document.body.classList.toggle('elastic', mode === 'elastic');
+      $('zlab').textContent = mode === 'elastic' ? 'Servidores iniciales' : 'Zonas (servidores)';
+    }
+    function setMode(m) {
+      if (m !== 'static' && m !== 'dynamic' && m !== 'elastic') return;
+      mode = m; updateModeUI(); reset();
+    }
+
+    // Umbrales: la fusión se mantiene siempre al menos CFG.mergeGap puntos por
+    // debajo de la división. El valor de fábrica es 60 % (con división al 85 %).
+    function setSplitThreshold(v) {
+      CFG.splitThreshold = Math.max(60, Math.min(100, Math.round(+v)));
+      CFG.mergeThreshold = Math.min(60, CFG.splitThreshold - CFG.mergeGap);
+      $('split').value = String(CFG.splitThreshold);
+      $('vs').textContent = CFG.splitThreshold + ' %';
+    }
+    function setMaxServers(v) {
+      let n = Math.max(4, Math.min(16, Math.round(+v)));
+      // No permitir que el máximo efectivo quede por debajo de los servidores
+      // presentes: así se conserva el invariante total <= maxServers.
+      if (mode === 'elastic') n = Math.max(n, zones.length, N);
+      CFG.maxServers = n;
+      $('maxsrv').value = String(n);
+      $('vmx').textContent = n;
+    }
+
+    // --- Tarjetas del panel, indexadas por id y creadas/destruidas al vuelo ---
+    function buildCards(force) {
+      const ids = zones.map(z => z.id).sort((a, b) => a - b);
+      const sig = ids.join(',');
+      if (!force && sig === cardSig && cardMap.size === ids.length) return;
+      cardSig = sig;
+      const box = $('cards');
+      for (const [id, e] of [...cardMap]) {
+        if (!zoneById.has(id)) { e.d.remove(); cardMap.delete(id); }
+      }
+      for (const id of ids) {
+        if (cardMap.has(id)) continue;
+        const d = document.createElement('div');
+        d.className = 'card'; d.dataset.id = String(id);
+        d.innerHTML = `<div class="top"><span><span class="dot"></span>Servidor ${id}<span class="st"></span></span><span class="pct"></span></div>
+    <div class="bar"><i></i></div><div class="small txt"></div><div class="small io"></div><div class="badge"></div>`;
+        d.onclick = () => { down.has(id) ? down.delete(id) : down.add(id) };
+        cardMap.set(id, {
+          d, pct: d.querySelector('.pct'), bar: d.querySelector('.bar i'), txt: d.querySelector('.txt'),
+          io: d.querySelector('.io'), st: d.querySelector('.st'), badge: d.querySelector('.badge'),
+          dot: d.querySelector('.dot')
+        });
+        box.appendChild(d);
+      }
+      for (const id of ids) { const e = cardMap.get(id); if (e) box.appendChild(e.d); }
+    }
+
+    // --- División y fusión (solo modo elástico) ---
+    function pendingFor(id) {
+      return pendingSplits.some(s => s.parentId === id || s.childId === id);
+    }
+    function inCooldown(id) { return (cooldown.get(id) || -Infinity) > T; }
+
+    function initiateSplit(parent) {
+      if (mode !== 'elastic' || zones.length >= CFG.maxServers) return false;
+      if (parent.state !== 'activo' || down.has(parent.id) || parent.w <= 0 || parent.h <= 0) return false;
+      const axis = parent.w >= parent.h ? 'x' : 'y';
+      const side = axis === 'x' ? parent.w : parent.h;
+      if (side < 2 * CFG.minSide) return false; // no cabe una división con sentido
+      const start = axis === 'x' ? parent.x : parent.y;
+      const vals = [];
+      for (const p of players) {
+        if (p.x >= parent.x && p.x <= parent.x + parent.w && p.y >= parent.y && p.y <= parent.y + parent.h) {
+          vals.push(axis === 'x' ? p.x : p.y);
+        }
+      }
+      let cut = start + side / 2;
+      if (vals.length) {
+        vals.sort((a, b) => a - b);
+        cut = vals[Math.floor((vals.length - 1) / 2)];
+      }
+      cut = Math.max(start + side * 0.3, Math.min(start + side * 0.7, cut));
+      const right = parent.x + parent.w, bottom = parent.y + parent.h;
+      const child = {
+        id: nextId++, state: 'arrancando', parent: parent.id,
+        x: axis === 'x' ? cut : parent.x,
+        y: axis === 'y' ? cut : parent.y,
+        w: axis === 'x' ? right - cut : parent.w,
+        h: axis === 'y' ? bottom - cut : parent.h
+      };
+      // El padre conserva la mitad inferior/izquierda; el nuevo servidor recibe
+      // la otra mitad. La geometría ya tesela desde el primer instante.
+      if (axis === 'x') parent.w = cut - parent.x; else parent.h = cut - parent.y;
+      zones.push(child); rebuildIndex();
+      pendingSplits.push({
+        parentId: parent.id, childId: child.id, axis, cut,
+        startT: T, activateAt: T + CFG.bootBaseMs + latency
+      });
+      cooldown.set(parent.id, T + CFG.cooldownMs);
+      addLog(`S${parent.id} saturado → arrancando S${child.id}`);
+      return true;
+    }
+
+    function abortSplit(s, parent, child) {
+      const x = Math.min(parent.x, child.x), y = Math.min(parent.y, child.y);
+      const r = Math.max(parent.x + parent.w, child.x + child.w);
+      const b = Math.max(parent.y + parent.h, child.y + child.h);
+      parent.x = x; parent.y = y; parent.w = r - x; parent.h = b - y;
+      const i = zones.indexOf(child); if (i >= 0) zones.splice(i, 1);
+      for (const p of players) {
+        if (p.owner === child.id) p.owner = parent.id;
+        if (p.pend && p.pend.to === child.id) p.pend.to = parent.id;
+      }
+      down.delete(child.id); cooldown.delete(child.id);
+      const si = pendingSplits.indexOf(s); if (si >= 0) pendingSplits.splice(si, 1);
+      addLog(`S${child.id} división cancelada`);
+      rebuildIndex();
+    }
+
+    function processBoots() {
+      for (let i = pendingSplits.length - 1; i >= 0; i--) {
+        const s = pendingSplits[i];
+        if (T < s.activateAt) continue;
+        const parent = zoneById.get(s.parentId), child = zoneById.get(s.childId);
+        if (!parent || !child) { pendingSplits.splice(i, 1); continue; }
+        const combined = countInRect(parent.x, parent.y, parent.w, parent.h) +
+          countInRect(child.x, child.y, child.w, child.h);
+        const load = combined / capacity * 100;
+        if (down.has(child.id) || down.has(parent.id) || load < CFG.splitThreshold - 10) {
+          abortSplit(s, parent, child);
+          continue;
+        }
+        pendingSplits.splice(i, 1);
+        child.state = 'activo'; child.flashAt = T;
+        cooldown.set(parent.id, T + CFG.cooldownMs);
+        cooldown.set(child.id, T + CFG.cooldownMs);
+        addLog(`S${child.id} activo (división de S${parent.id})`);
+      }
+    }
+
+    function shareEdge(a, b) {
+      const e = 0.01;
+      if (Math.abs(a.x - b.x) < e && Math.abs(a.w - b.w) < e) {
+        if (Math.abs(a.y + a.h - b.y) < e || Math.abs(b.y + b.h - a.y) < e) return true;
+      }
+      if (Math.abs(a.y - b.y) < e && Math.abs(a.h - b.h) < e) {
+        if (Math.abs(a.x + a.w - b.x) < e || Math.abs(b.x + b.w - a.x) < e) return true;
+      }
+      return false;
+    }
+
+    function mergeCandidates(snap) {
+      const list = zones.filter(z => z.state === 'activo' && z.w > 0 && z.h > 0 &&
+        !down.has(z.id) && !inCooldown(z.id) && !pendingFor(z.id));
+      const out = [];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (!shareEdge(a, b)) continue;
+          const ca = snap[a.id] || 0, cb = snap[b.id] || 0;
+          const load = (ca + cb) / capacity * 100;
+          if (load < CFG.mergeThreshold) {
+            out.push({ a, b, ca, cb, load, key: Math.min(a.id, b.id) + '-' + Math.max(a.id, b.id) });
+          }
+        }
+      }
+      return out;
+    }
+
+    function executeMerge(c) {
+      const a = c.a, b = c.b;
+      const loser = c.ca < c.cb ? a : c.ca > c.cb ? b : (a.id > b.id ? a : b);
+      const surv = loser === a ? b : a;
+      const drainRect = { x: loser.x, y: loser.y, w: loser.w, h: loser.h };
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      const r = Math.max(a.x + a.w, b.x + b.w), bo = Math.max(a.y + a.h, b.y + b.h);
+      surv.x = x; surv.y = y; surv.w = r - x; surv.h = bo - y;
+      loser.state = 'drenando'; loser.mergedInto = surv.id; loser.drainRect = drainRect;
+      loser.drainStartT = T; loser.x = 0; loser.y = 0; loser.w = 0; loser.h = 0;
+      cooldown.set(surv.id, T + CFG.cooldownMs);
+      cooldown.set(loser.id, T + CFG.cooldownMs);
+      mergeSince.delete(c.key);
+      addLog(`S${loser.id} drenando → S${surv.id}`);
+      rebuildIndex();
+    }
+
+    function cleanupDraining() {
+      for (let i = zones.length - 1; i >= 0; i--) {
+        const z = zones[i];
+        if (z.state !== 'drenando' || T <= (z.drainStartT || 0)) continue;
+        let used = false;
+        for (const p of players) {
+          if (p.owner === z.id || (p.pend && p.pend.to === z.id)) { used = true; break; }
+        }
+        if (used) continue;
+        zones.splice(i, 1); down.delete(z.id); cooldown.delete(z.id);
+        addLog(`S${z.id} fusionado en S${z.mergedInto}`);
+        rebuildIndex();
+      }
+    }
+
+    function autoscaler() {
+      if (mode !== 'elastic') return;
+      if (T - lastEval < CFG.evalMs) return;
+      lastEval = T;
+      const snap = history.length ? history[0].counts : {};
+
+      // 1) Divisiones (se evalúan sobre la instantánea retrasada).
+      if (zones.length < CFG.maxServers) {
+        for (const z of zones) {
+          if (z.state !== 'activo' || down.has(z.id) || z.w <= 0) { splitSince.delete(z.id); continue; }
+          if (pendingFor(z.id) || inCooldown(z.id)) { splitSince.delete(z.id); continue; }
+          const load = (snap[z.id] || 0) / capacity * 100;
+          if (load >= CFG.splitThreshold) {
+            if (!splitSince.has(z.id)) splitSince.set(z.id, T);
+            else if (T - splitSince.get(z.id) >= CFG.sustainMs) {
+              splitSince.delete(z.id);
+              initiateSplit(z);
+              if (zones.length >= CFG.maxServers) break;
+            }
+          } else splitSince.delete(z.id);
+        }
+      } else splitSince.clear();
+
+      // 2) Fusiones: parejas con arista completa compartida y baja carga combinada.
+      if (zones.length > CFG.minServers) {
+        const pairs = mergeCandidates(snap);
+        const keys = new Set(pairs.map(p => p.key));
+        for (const k of [...mergeSince.keys()]) if (!keys.has(k)) mergeSince.delete(k);
+        for (const p of pairs) if (!mergeSince.has(p.key)) mergeSince.set(p.key, T);
+        const activeCount = zones.filter(z => z.state === 'activo' && !down.has(z.id)).length;
+        if (activeCount > CFG.minServers) {
+          const ready = pairs.filter(p => T - mergeSince.get(p.key) >= CFG.sustainMs)
+            .sort((a, b) => a.load - b.load);
+          if (ready.length) executeMerge(ready[0]);
+        }
+      }
+    }
+
+    function update(dt) {
+      T += dt * 1000;
+      if (mode === 'dynamic') { adaptBounds(dt); syncBoundsZones(); }
+      // Coste acumulado: servidores que no están caídos (activos/arrancando/drenando).
+      if (mode === 'elastic') {
+        let live = 0;
+        for (const z of zones) if (!down.has(z.id)) live++;
+        cost += live * dt;
+      }
+      for (const p of players) {
+        // movimiento aleatorio suave (+ atracción opcional)
+        p.a += (rnd() - .5) * 4 * dt;
+        if (attractor) {
+          const want = Math.atan2(attractor.y - p.y, attractor.x - p.x);
+          let df = Math.atan2(Math.sin(want - p.a), Math.cos(want - p.a));
+          p.a += df * 1.2 * dt;
+        }
+        p.x += Math.cos(p.a) * p.s * dt; p.y += Math.sin(p.a) * p.s * dt;
+        if (p.x < 2 || p.x > W - 2) { p.a = Math.PI - p.a; p.x = Math.max(2, Math.min(W - 2, p.x)) }
+        if (p.y < 2 || p.y > H - 2) { p.a = -p.a; p.y = Math.max(2, Math.min(H - 2, p.y)) }
+        // lógica de handoff (reutilizada por el escalado elástico)
+        const target = resolve(zoneOf(p.x, p.y));
+        if (target === p.owner) p.pend = null;
+        else if (!p.pend || p.pend.to !== target) p.pend = { to: target, at: T + latency };
+        if (p.pend && T >= p.pend.at) {
+          p.owner = p.pend.to; p.pend = null; p.flash = T; totalHandoffs++;
+          pings.push({ x: p.x, y: p.y, t: T, c: color(p.owner) });
+        }
+      }
+      pings = pings.filter(g => T - g.t < 700);
+      if (mode === 'elastic') {
+        processBoots();
+        autoscaler();
+        cleanupDraining();
+      }
+      // snapshot de métricas: se publica con retraso = latencia
+      history.push({ t: T, counts: snapshotCounts() });
+      while (history.length > 1 && history[1].t <= T - latency) history.shift();
+    }
+
+    function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim() }
+
+    function draw() {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const line = css('--line'), muted = css('--muted');
+      ctx.font = '600 13px system-ui,sans-serif'; ctx.textBaseline = 'top';
+      for (const z of zones) {
+        if (z.w <= 0 || z.h <= 0) continue;
+        const dead = down.has(z.id);
+        ctx.globalAlpha = dead ? .22 : .09; ctx.fillStyle = dead ? '#d64545' : color(z.id);
+        ctx.fillRect(z.x, z.y, z.w, z.h);
+        ctx.globalAlpha = 1; ctx.strokeStyle = line; ctx.lineWidth = 1.5;
+        ctx.strokeRect(z.x + .5, z.y + .5, z.w - 1, z.h - 1);
+        ctx.fillStyle = dead ? '#d64545' : color(z.id);
+        let label = `S${z.id}`;
+        if (dead) label += ' · CAÍDO';
+        else if (mode === 'elastic' && z.state !== 'activo') label += ` · ${z.state}`;
+        ctx.fillText(label, z.x + 8, z.y + 7);
+        if (mode === 'elastic' && z.flashAt !== undefined && T - z.flashAt < 600) {
+          ctx.globalAlpha = 1 - (T - z.flashAt) / 600;
+          ctx.strokeStyle = color(z.id); ctx.lineWidth = 3;
+          ctx.strokeRect(z.x + 2, z.y + 2, Math.max(0, z.w - 4), Math.max(0, z.h - 4));
+          ctx.globalAlpha = 1;
+        }
+      }
+      if (mode === 'elastic') {
+        // Contorno punteado de las zonas que se están drenando (ya sin geometría).
+        ctx.setLineDash([5, 5]); ctx.globalAlpha = .55; ctx.strokeStyle = muted; ctx.lineWidth = 1.5;
+        for (const z of zones) {
+          if (z.state !== 'drenando' || !z.drainRect) continue;
+          const q = z.drainRect;
+          ctx.strokeRect(q.x + .5, q.y + .5, q.w - 1, q.h - 1);
+          ctx.fillStyle = muted; ctx.font = '600 11px system-ui,sans-serif';
+          ctx.fillText(`S${z.id} · drenando`, q.x + 8, q.y + 26);
+        }
+        ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.font = '600 13px system-ui,sans-serif';
+        // Línea de corte pulsante de cada división en arranque.
+        for (const s of pendingSplits) {
+          const child = zoneById.get(s.childId), parent = zoneById.get(s.parentId);
+          if (!child || !parent) continue;
+          const pulse = .5 + .5 * Math.sin(T / 120);
+          ctx.save();
+          ctx.globalAlpha = .45 + .55 * pulse;
+          ctx.strokeStyle = color(s.childId); ctx.lineWidth = 2;
+          ctx.setLineDash([8, 6]); ctx.lineDashOffset = -(T / 40) % 14;
+          ctx.beginPath();
+          if (s.axis === 'x') {
+            ctx.moveTo(s.cut, child.y); ctx.lineTo(s.cut, child.y + child.h);
+          } else {
+            ctx.moveTo(child.x, s.cut); ctx.lineTo(child.x + child.w, s.cut);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]); ctx.font = '600 12px system-ui,sans-serif';
+          const text = `arrancando S${s.childId}…`;
+          const tx = s.axis === 'x' ? Math.min(W - 135, s.cut + 6) : Math.min(W - 135, child.x + 8);
+          const ty = s.axis === 'x' ? child.y + 30 : Math.max(8, s.cut - 30);
+          ctx.fillStyle = color(s.childId); ctx.fillText(text, Math.max(8, tx), ty);
+          ctx.restore();
+        }
+      }
+      if (attractor) {
+        ctx.strokeStyle = muted; ctx.lineWidth = 1.5; ctx.beginPath();
+        ctx.arc(attractor.x, attractor.y, 9, 0, 6.283); ctx.moveTo(attractor.x - 14, attractor.y); ctx.lineTo(attractor.x + 14, attractor.y);
+        ctx.moveTo(attractor.x, attractor.y - 14); ctx.lineTo(attractor.x, attractor.y + 14); ctx.stroke();
+      }
+      for (const p of players) {
+        const fl = T - p.flash;
+        if (p.pend) {
+          ctx.strokeStyle = color(p.pend.to); ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 6.283); ctx.stroke(); ctx.setLineDash([])
+        }
+        ctx.fillStyle = fl < 350 ? '#fff' : color(p.owner);
+        ctx.beginPath(); ctx.arc(p.x, p.y, fl < 350 ? 5 : 3.5, 0, 6.283); ctx.fill();
+        if (fl < 350) { ctx.strokeStyle = color(p.owner); ctx.lineWidth = 2; ctx.stroke() }
+      }
+      for (const g of pings) {
+        const k = (T - g.t) / 700; ctx.globalAlpha = 1 - k; ctx.strokeStyle = g.c; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(g.x, g.y, 5 + k * 24, 0, 6.283); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    }
+
+    function renderLog() {
+      const sig = log.join('|');
+      if (sig === logSig) return;
+      logSig = sig;
+      const box = $('logList');
+      box.innerHTML = '';
+      if (!log.length) {
+        const d = document.createElement('div'); d.className = 'line'; d.textContent = 'Sin eventos todavía.';
+        box.appendChild(d); return;
+      }
+      for (const line of log) {
+        const d = document.createElement('div'); d.className = 'line'; d.textContent = line;
+        box.appendChild(d);
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function renderPanel() {
+      const snap = history.length ? history[0].counts : snapshotCounts();
+      const inc = {}, out = {};
+      let pending = 0;
+      for (const p of players) {
+        if (!p.pend) continue;
+        pending++; out[p.owner] = (out[p.owner] || 0) + 1;
+        inc[p.pend.to] = (inc[p.pend.to] || 0) + 1;
+      }
+      buildCards(false);
+      const ids = zones.map(z => z.id).sort((a, b) => a - b);
+      for (const id of ids) {
+        const e = cardMap.get(id); if (!e) continue;
+        const z = zoneById.get(id); const dead = down.has(id);
+        const n = snap[id] || 0, load = n / capacity * 100, shown = Math.round(load);
+        e.d.classList.toggle('down', dead);
+        e.d.classList.toggle('starting', z.state === 'arrancando');
+        e.d.classList.toggle('draining', z.state === 'drenando');
+        e.dot.style.background = color(id);
+        e.pct.textContent = dead ? 'CAÍDO' : shown + '% carga';
+        e.st.textContent = mode === 'elastic' ? ' · ' + (dead ? 'caído' : z.state) : '';
+        e.bar.style.width = Math.min(100, load) + '%';
+        e.bar.style.background = load >= 90 ? css('--bad') : load >= 60 ? css('--warn') : css('--ok');
+        e.txt.textContent = `${n} jugadores (${shown}% de ${capacity})`;
+        e.io.textContent = `entrando: ${inc[id] || 0} · saliendo: ${out[id] || 0}`;
+        const sat = mode === 'elastic' && !dead && z.state === 'activo' &&
+          load >= CFG.splitThreshold && zones.length >= CFG.maxServers;
+        e.badge.textContent = sat ? 'SATURADO (tope)' : '';
+      }
+      $('tot').textContent = totalHandoffs; $('pen').textContent = pending;
+      if (mode === 'elastic') {
+        const activeIds = ids.filter(id => !down.has(id) && zoneById.get(id).state === 'activo');
+        const vals = activeIds.map(id => snap[id] || 0);
+        $('dif').textContent = vals.length ? Math.round((Math.max(...vals) - Math.min(...vals)) / capacity * 100) + ' pts' : '–';
+        $('act').textContent = activeIds.length;
+        $('maxh').textContent = CFG.maxServers;
+        $('cost').textContent = cost.toFixed(1);
+        renderLog();
+      } else {
+        const alive = ids.filter(id => !down.has(id)).map(id => snap[id] || 0);
+        $('dif').textContent = alive.length ? Math.round((Math.max(...alive) - Math.min(...alive)) / capacity * 100) + ' pts' : '–';
+      }
+    }
+
+    let last = performance.now(), acc = 0;
+    function loop(now) {
+      const dt = Math.min(.05, (now - last) / 1000); last = now;
+      if (running) update(dt);
+      draw(); acc += dt; if (acc > .1) { acc = 0; renderPanel() }
+      requestAnimationFrame(loop);
+    }
+
+    $('go').onclick = () => { running = !running; $('go').textContent = running ? '⏸ Pausar' : '▶ Iniciar' };
+    $('zones').onchange = e => setZones(+e.target.value);
+    $('np').oninput = e => { $('vn').textContent = e.target.value; setPlayers(+e.target.value) };
+    $('lat').oninput = e => { latency = +e.target.value; $('vl').textContent = latency + ' ms' };
+    $('cap').oninput = e => { capacity = +e.target.value; $('vc').textContent = capacity };
+    $('split').oninput = e => setSplitThreshold(+e.target.value);
+    $('maxsrv').oninput = e => setMaxServers(+e.target.value);
+    $('clr').onclick = () => attractor = null;
+    cv.onclick = e => {
+      const r = cv.getBoundingClientRect();
+      attractor = { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+    };
+
+    $('mS').onclick = () => setMode('static');
+    $('mD').onclick = () => setMode('dynamic');
+    $('mE').onclick = () => setMode('elastic');
+
+    // =====================================================================
+    // Gancho de pruebas deterministas. No altera el comportamiento visible.
+    // =====================================================================
+    window.__sim = {
+      step(dt, nPasos = 1) {
+        let d = +dt; if (!isFinite(d) || d < 0) d = 0; d = Math.min(.05, d);
+        const n = Math.max(0, Math.floor(+nPasos || 1));
+        for (let i = 0; i < n; i++) update(d);
+        renderPanel();
+      },
+      setRunning(v) {
+        running = !!v;
+        $('go').textContent = running ? '⏸ Pausar' : '▶ Iniciar';
+      },
+      state() {
+        return {
+          mode, T, zones: zones.map(z => ({
+            id: z.id, x: z.x, y: z.y, w: z.w, h: z.h, state: z.state,
+            parent: z.parent, mergedInto: z.mergedInto, flashAt: z.flashAt,
+            drainRect: z.drainRect ? { ...z.drainRect } : undefined
+          })),
+          players: players.map(p => ({ x: p.x, y: p.y, owner: p.owner, pendTo: p.pend ? p.pend.to : null })),
+          down: [...down], counts: snapshotCounts(),
+          history: history.map(h => ({ t: h.t, counts: { ...h.counts } })),
+          totalHandoffs, cost, log: [...log], cfg: { ...CFG },
+          nextId, pendingSplits: pendingSplits.map(s => ({ ...s }))
+        };
+      },
+      set(o) {
+        if (!o) return;
+        if (o.mode !== undefined) setMode(o.mode);
+        if (o.zones !== undefined) setZones(o.zones);
+        if (o.players !== undefined) {
+          const n = Math.max(0, Math.min(200, Math.round(+o.players)));
+          $('np').value = String(n); $('vn').textContent = n; setPlayers(n);
+        }
+        if (o.latency !== undefined) {
+          latency = Math.max(0, Math.min(2500, Math.round(+o.latency)));
+          $('lat').value = String(latency); $('vl').textContent = latency + ' ms';
+        }
+        if (o.capacity !== undefined) {
+          capacity = Math.max(5, Math.min(60, Math.round(+o.capacity)));
+          $('cap').value = String(capacity); $('vc').textContent = capacity;
+        }
+        if (o.splitThreshold !== undefined) setSplitThreshold(o.splitThreshold);
+        if (o.maxServers !== undefined) setMaxServers(o.maxServers);
+        if (o.attractor !== undefined) {
+          attractor = o.attractor ? {
+            x: Math.max(0, Math.min(W, +o.attractor.x)),
+            y: Math.max(0, Math.min(H, +o.attractor.y))
+          } : null;
+        }
+        if (o.down !== undefined) {
+          down = new Set((o.down || []).map(Number).filter(id => zoneById.has(id)));
+        }
+        renderPanel();
+      },
+      draw
+    };
+
+    setMode('static');
+    requestAnimationFrame(loop);
+  </script>
+</body>
+
+</html>
